@@ -1,0 +1,25 @@
+# Ambiente Python
+__pycache__/
+*.pyc
+
+# Ambiente virtual
+venv/
+.venv/
+
+# Credenciais
+credentials/
+*.json
+
+# Variáveis de ambiente
+.env
+
+# Downloads
+downloads/
+
+# Logs
+*.log
+logs/
+
+# Arquivos temporários
+*.tmp
+*.temp
