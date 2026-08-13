@@ -8,11 +8,142 @@ from modules.models.video import Video
 class YouTubeClient:
 
     def __init__(self):
+
         # Cria a conexão com a API do YouTube.
         self.youtube = build(
             "youtube",
             "v3",
             developerKey=YOUTUBE_API_KEY
+        )
+
+    def buscar_video_por_id(self, video_id: str):
+        """
+        Busca um vídeo específico pelo seu ID.
+
+        Utilizado principalmente pelo RecoveryService,
+        quando encontramos um arquivo local que precisa
+        ser recuperado para a fila.
+
+        Args:
+            video_id (str):
+                ID do vídeo no YouTube.
+
+        Returns:
+            Video | None:
+                Objeto Video completo caso encontrado.
+                None caso o vídeo não exista ou não esteja
+                disponível.
+        """
+
+        resultado = self.youtube.videos().list(
+            part="snippet,contentDetails,statistics",
+            id=video_id
+        ).execute()
+
+        itens = resultado.get("items", [])
+
+        if not itens:
+            return None
+
+        item = itens[0]
+
+        snippet = item.get(
+            "snippet",
+            {}
+        )
+
+        content_details = item.get(
+            "contentDetails",
+            {}
+        )
+
+        statistics = item.get(
+            "statistics",
+            {}
+        )
+
+        # ======================================================
+        # DURAÇÃO
+        # ======================================================
+
+        duracao = converter_duracao_para_segundos(
+            content_details.get(
+                "duration",
+                "PT0S"
+            )
+        )
+
+        # ======================================================
+        # DADOS DO VÍDEO
+        # ======================================================
+
+        return Video(
+
+            video_id=item["id"],
+
+            titulo=snippet.get(
+                "title",
+                ""
+            ),
+
+            descricao=snippet.get(
+                "description",
+                ""
+            ),
+
+            canal=snippet.get(
+                "channelTitle",
+                ""
+            ),
+
+            thumbnail=snippet.get(
+                "thumbnails",
+                {}
+            ).get(
+                "default",
+                {}
+            ).get(
+                "url",
+                ""
+            ),
+
+            url=f"https://www.youtube.com/watch?v={item['id']}",
+
+            duracao=duracao,
+
+            views=int(
+                statistics.get(
+                    "viewCount",
+                    0
+                )
+            ),
+
+            likes=int(
+                statistics.get(
+                    "likeCount",
+                    0
+                )
+            ),
+
+            comentarios=int(
+                statistics.get(
+                    "commentCount",
+                    0
+                )
+            ),
+
+            idioma=snippet.get(
+                "defaultLanguage",
+                snippet.get(
+                    "defaultAudioLanguage",
+                    "desconhecido"
+                )
+            ),
+
+            qualidade=content_details.get(
+                "definition",
+                "desconhecida"
+            )
         )
 
     def buscar_videos(self, termo, quantidade=5):
@@ -34,7 +165,10 @@ class YouTubeClient:
         video_ids = []
 
         for item in response["items"]:
-            video_ids.append(item["id"]["videoId"])
+
+            video_ids.append(
+                item["id"]["videoId"]
+            )
 
         # Converte a lista em uma string separada por vírgulas,
         # formato exigido pela API videos.list().
@@ -45,9 +179,9 @@ class YouTubeClient:
             part="snippet,statistics,contentDetails",
             id=video_ids
         )
-        
 
         video_details = request.execute()
+
         print(video_details["items"][0])
 
         # Lista que armazenará os objetos Video.
@@ -74,17 +208,43 @@ class YouTubeClient:
 
                 url=f"https://www.youtube.com/watch?v={item['id']}",
 
-                duracao=converter_duracao_para_segundos(content.get("duration", "PT0S")),
+                duracao=converter_duracao_para_segundos(
+                    content.get(
+                        "duration",
+                        "PT0S"
+                    )
+                ),
 
-                views=int(statistics.get("viewCount", 0)),
+                views=int(
+                    statistics.get(
+                        "viewCount",
+                        0
+                    )
+                ),
 
-                likes=int(statistics.get("likeCount", 0)),
+                likes=int(
+                    statistics.get(
+                        "likeCount",
+                        0
+                    )
+                ),
 
-                comentarios=int(statistics.get("commentCount", 0)),
+                comentarios=int(
+                    statistics.get(
+                        "commentCount",
+                        0
+                    )
+                ),
 
-                idioma=snippet.get("defaultLanguage", "desconhecido"),
+                idioma=snippet.get(
+                    "defaultLanguage",
+                    "desconhecido"
+                ),
 
-                qualidade=content.get("definition", "desconhecida")
+                qualidade=content.get(
+                    "definition",
+                    "desconhecida"
+                )
 
             )
 

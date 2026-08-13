@@ -5,123 +5,345 @@ from modules.services.upload import UploadService
 from modules.analyzers.score_analyzer import ScoreAnalyzer
 from modules.download.youtube_downloader import YouTubeDownloader
 from modules.utils.history import carregar_historico, salvar_video
+from modules.utils.queue import VideoQueue
+from modules.services.recovery import RecoveryService
 
 from config import MIN_SCORE_DOWNLOAD
 
 
-def main():
+def publicar_video(
+    uploader,
+    fila,
+    item,
+    historico
+):
+    """
+    Tenta publicar um vídeo que já está registrado na fila.
 
-    # Inicializa os módulos principais do sistema.
-    search = SearchService()
-    analyzer = ScoreAnalyzer()
-    downloader = YouTubeDownloader()
-    uploader = UploadService()
+    Retorna:
+        True  -> publicação concluída
+        False -> upload falhou
+    """
 
-    # Carrega todos os vídeos já processados anteriormente.
-    historico = carregar_historico()
+    caminho = item["caminho_download"]
 
-    # Busca vídeos de um determinado nicho.
-    videos = search.buscar_por_nicho(
-        nicho="curiosidades",
-        quantidade=30
-    )
+    print("=" * 60)
+    print(f"Publicando: {item['titulo']}")
 
-    print(f"\n{len(videos)} vídeos encontrados.\n")
+    # Verifica se o arquivo ainda existe.
+    if not Path(caminho).exists():
 
-    # Analisa todos os vídeos encontrados.
-    for video in videos:
+        print("Arquivo do vídeo não foi encontrado.")
+        print(f"Caminho: {caminho}")
 
-        # Ignora vídeos que já foram processados anteriormente.
-        if video.video_id in historico:
+        return False
+
+    try:
+
+        video_id_youtube = uploader.enviar_video(
+            caminho_video=caminho,
+            titulo=item["titulo"],
+            descricao=item["descricao"],
+            privacidade="public"
+        )
+
+    except Exception as erro:
+
+        # O vídeo continua na fila.
+        print("Erro durante o upload.")
+        print(f"Detalhes: {erro}")
+
+        return False
+
+    print("Vídeo publicado com sucesso!")
+    print(f"ID do vídeo no YouTube: {video_id_youtube}")
+
+    # Primeiro registra como concluído.
+    salvar_video(item["video_id"])
+    historico.add(item["video_id"])
+
+    # Depois remove da fila.
+    fila.remover(item["video_id"])
+
+    # Só depois de confirmar o upload removemos o arquivo.
+    try:
+
+        Path(caminho).unlink()
+
+        print("Arquivo local excluído.")
+
+    except OSError as erro:
+
+        # O vídeo já foi publicado e removido da fila.
+        # Portanto, uma falha aqui não deve fazê-lo voltar para a fila.
+        print("Não foi possível excluir o arquivo local.")
+        print(f"Detalhes: {erro}")
+
+    return True
+
+
+def processar_fila(
+    uploader,
+    fila,
+    historico
+):
+    """
+    Processa todos os vídeos atualmente presentes na fila.
+
+    Retorna:
+        True  -> a fila estava vazia no final
+        False -> ainda existem vídeos pendentes
+    """
+
+    if fila.vazia():
+
+        print("Fila de publicação vazia.")
+
+        return True
+
+    print("\nVídeos pendentes encontrados na fila.")
+
+    while not fila.vazia():
+
+        item = fila.proximo()
+
+        if item is None:
+            break
+
+        # Caso excepcional: evita tentar publicar algo
+        # que já esteja registrado no histórico.
+        if item["video_id"] in historico:
 
             print("=" * 60)
-            print(video.titulo)
-            print("Vídeo já foi processado anteriormente. Ignorado.")
+            print(item["titulo"])
+            print("Vídeo já está no histórico. Removendo da fila.")
+
+            fila.remover(item["video_id"])
 
             continue
 
-        # Ignora vídeos maiores que 120 segundos.
-        if video.duracao > 120:
+        sucesso = publicar_video(
+            uploader,
+            fila,
+            item,
+            historico
+        )
 
-            print("=" * 60)
-            print(video.titulo)
-            print(f"Duração: {video.duracao} segundos")
-            print("Vídeo muito longo. Ignorado.")
+        # Se falhar, paramos aqui.
+        #
+        # O vídeo continua na fila e será tentado novamente
+        # na próxima execução do ContentAI.
+        if not sucesso:
 
-            continue
-
-        # Calcula a pontuação do vídeo.
-        score = analyzer.calcular(video)
-
-        print("=" * 60)
-        print(video)
-        print(f"Score: {score}")
-
-        # Só continua se o vídeo atingir a pontuação mínima.
-        if score < MIN_SCORE_DOWNLOAD:
-
-            print("Score insuficiente. Vídeo ignorado.")
-
-            continue
-
-        print("Download autorizado.")
-
-        # Baixa o vídeo.
-        caminho = downloader.baixar_video(video.url)
-
-        if not caminho:
-
-            print("Erro durante o download.")
-            continue
-
-        video.caminho_download = caminho
-        video.status = "baixado"
-
-        print("Download concluído.")
-
-        # Envia o vídeo para o YouTube.
-        try:
-
-            video_id_youtube = uploader.enviar_video(
-                caminho_video=caminho,
-                titulo=video.titulo,
-                descricao=video.descricao,
-                privacidade="public"
+            print(
+                "\nUpload não concluído."
+                "\nO vídeo continuará na fila."
             )
 
-        except Exception as erro:
+            return False
 
-            # Se o upload falhar, o arquivo NÃO será apagado
-            # e o vídeo NÃO será registrado no histórico.
-            print("Erro durante o upload.")
-            print(f"Detalhes: {erro}")
+    print("\nFila processada com sucesso.")
 
-            continue
+    return True
 
-        # Só chegamos aqui se o YouTube confirmou o upload.
-        video.status = "publicado"
 
-        print("Vídeo publicado com sucesso!")
-        print(f"ID do vídeo no YouTube: {video_id_youtube}")
+def main():
 
-        # Registra o vídeo no histórico somente após a publicação.
-        salvar_video(video.video_id)
-        historico.add(video.video_id)
+    try:
 
-        # Remove o arquivo local somente após o upload confirmado.
-        try:
+        # ======================================================
+        # INICIALIZAÇÃO DOS MÓDULOS
+        # ======================================================
 
-            Path(caminho).unlink()
+        search = SearchService()
+        analyzer = ScoreAnalyzer()
+        downloader = YouTubeDownloader()
+        uploader = UploadService()
+        fila = VideoQueue()
+        recovery = RecoveryService()
 
-            print("Arquivo local excluído.")
+        historico = carregar_historico()
 
-        except OSError as erro:
+        # ======================================================
+        # 1. PRIMEIRO PROCESSAMOS A FILA EXISTENTE
+        # ======================================================
 
-            # Caso a exclusão falhe, o vídeo continua publicado.
-            print("Não foi possível excluir o arquivo local.")
-            print(f"Detalhes: {erro}")
+        # ======================================================
+        # RECUPERAÇÃO DE VÍDEOS ÓRFÃOS
+        # ======================================================
 
-    print("\nProcesso finalizado.")
+        videos_recuperados = recovery.encontrar_videos()
+
+        if videos_recuperados:
+
+            print(
+                f"\n{len(videos_recuperados)} vídeo(s) recuperado(s)."
+            )
+
+            for video in videos_recuperados:
+
+                fila.adicionar(video)
+
+                print(
+                    f"Adicionado à fila: {video.titulo}"
+                )
+
+        # ======================================================
+        # PROCESSAMENTO DA FILA
+        # ======================================================
+
+        fila_processada = processar_fila(
+            uploader,
+            fila,
+            historico
+        )
+
+        # Se ainda existe um vídeo pendente porque houve erro,
+        # não vamos baixar novos vídeos.
+        if not fila_processada:
+
+            print(
+                "\nExistem vídeos pendentes na fila."
+                "\nNovos downloads não serão realizados "
+                "nesta execução."
+            )
+
+            return
+
+        # ======================================================
+        # 2. BUSCA DE NOVOS VÍDEOS
+        # ======================================================
+
+        videos = search.buscar_por_nicho(
+            nicho="Curiosidades",
+            quantidade=100
+        )
+
+        print(f"\n{len(videos)} vídeos encontrados.\n")
+
+        # ======================================================
+        # 3. PROCESSAMENTO DOS NOVOS VÍDEOS
+        # ======================================================
+
+        for video in videos:
+
+            # --------------------------------------------------
+            # Histórico
+            # --------------------------------------------------
+
+            if video.video_id in historico:
+
+                print("=" * 60)
+                print(video.titulo)
+                print(
+                    "Vídeo já foi processado anteriormente. "
+                    "Ignorado."
+                )
+
+                continue
+
+            # --------------------------------------------------
+            # Duração
+            # --------------------------------------------------
+
+            if video.duracao > 180:
+
+                print("=" * 60)
+                print(video.titulo)
+                print(
+                    f"Duração: "
+                    f"{video.duracao} segundos"
+                )
+                print("Vídeo muito longo. Ignorado.")
+
+                continue
+
+            # --------------------------------------------------
+            # Score
+            # --------------------------------------------------
+
+            score = analyzer.calcular(video)
+
+            print("=" * 60)
+            print(video)
+            print(f"Score: {score}")
+
+            if score < MIN_SCORE_DOWNLOAD:
+
+                print(
+                    "Score insuficiente. "
+                    "Vídeo ignorado."
+                )
+
+                continue
+
+            # --------------------------------------------------
+            # Download
+            # --------------------------------------------------
+
+            print("Download autorizado.")
+
+            caminho = downloader.baixar_video(
+                video.url
+            )
+
+            if not caminho:
+
+                print("Erro durante o download.")
+
+                continue
+
+            video.caminho_download = caminho
+            video.status = "baixado"
+
+            print("Download concluído.")
+
+            # --------------------------------------------------
+            # ADICIONA À FILA ANTES DO UPLOAD
+            # --------------------------------------------------
+
+            fila.adicionar(video)
+
+            print("Vídeo adicionado à fila.")
+
+            # --------------------------------------------------
+            # Upload
+            # --------------------------------------------------
+
+            item = fila.proximo()
+
+            if item is None:
+
+                print(
+                    "Erro: vídeo não encontrado na fila."
+                )
+
+                continue
+
+            sucesso = publicar_video(
+                uploader,
+                fila,
+                item,
+                historico
+            )
+
+            # --------------------------------------------------
+            # Se falhar, paramos os novos downloads.
+            # --------------------------------------------------
+
+            if not sucesso:
+
+                print(
+                    "\nO upload falhou."
+                    "\nO vídeo permanece na fila."
+                    "\nNovos downloads serão interrompidos."
+                )
+
+                break
+
+    finally:
+        # ======================================================
+        print("\nProcesso finalizado.")
 
 
 if __name__ == "__main__":

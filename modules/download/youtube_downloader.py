@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from yt_dlp import YoutubeDL
 
 
@@ -19,11 +20,23 @@ class YouTubeDownloader:
         self.download_path = Path("downloads/originais")
 
         # Caso a pasta não exista, ela será criada automaticamente.
-        self.download_path.mkdir(parents=True, exist_ok=True)
+        self.download_path.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
     def baixar_video(self, url: str) -> str:
         """
         Baixa um vídeo utilizando o yt-dlp.
+
+        O ID do vídeo é incluído no nome do arquivo.
+
+        Exemplo:
+
+        [wUbXZFuHicE] O desespero do PT.mp4
+
+        Isso permite que o RecoveryService identifique
+        posteriormente qual vídeo pertence a cada arquivo.
 
         Args:
             url (str):
@@ -39,8 +52,14 @@ class YouTubeDownloader:
             # Melhor vídeo + melhor áudio disponíveis.
             "format": "bestvideo+bestaudio/best",
 
-            # Nome do arquivo.
-            "outtmpl": str(self.download_path / "%(title)s.%(ext)s"),
+            # O ID do vídeo será armazenado no nome do arquivo.
+            #
+            # Exemplo:
+            # [ABC123] Meu vídeo.mp4
+            "outtmpl": str(
+                self.download_path /
+                "[%(id)s] %(title)s.%(ext)s"
+            ),
 
             # Junta vídeo e áudio automaticamente.
             "merge_output_format": "mp4",
@@ -52,9 +71,24 @@ class YouTubeDownloader:
         with YoutubeDL(ydl_opts) as ydl:
 
             # Faz o download.
-            info = ydl.extract_info(url, download=True)
+            info = ydl.extract_info(
+                url,
+                download=True
+            )
 
-            # Descobre o caminho final do arquivo.
-            arquivo = ydl.prepare_filename(info)
+            # Descobre o caminho gerado pelo yt-dlp.
+            arquivo = Path(
+                ydl.prepare_filename(info)
+            )
 
-        return arquivo
+            # Como configuramos merge_output_format="mp4",
+            # o arquivo final será .mp4 quando houver
+            # necessidade de juntar vídeo + áudio.
+            #
+            # Ajustamos o caminho retornado para refletir
+            # o arquivo final.
+            if arquivo.suffix.lower() != ".mp4":
+
+                arquivo = arquivo.with_suffix(".mp4")
+
+        return str(arquivo)
