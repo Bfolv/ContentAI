@@ -18,12 +18,9 @@ class Video:
         likes,
         comentarios,
         idioma,
-        qualidade
+        qualidade,
+        origem_conteudo="externo"
     ):
-
-        # ==========================
-        # Dados vindos da API
-        # ==========================
 
         self.video_id = video_id
         self.titulo = titulo
@@ -31,19 +28,13 @@ class Video:
         self.canal = canal
         self.thumbnail = thumbnail
         self.url = url
-
         self.duracao = duracao
         self.views = views
         self.likes = likes
         self.comentarios = comentarios
         self.idioma = idioma
         self.qualidade = qualidade
-
-        # ==========================
-        # Controle interno
-        # ==========================
-
-        self.score = 0
+        self.origem_conteudo = origem_conteudo
         self.status = "encontrado"
         self.caminho_download = None
 

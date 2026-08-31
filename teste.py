@@ -1,32 +1,28 @@
-from modules.services.recovery import RecoveryService
+from modules.agents.roteiro_agent import RoteiroAgent
 
 
-recovery = RecoveryService()
+# ==================================================================
+# TESTE ISOLADO DO ROTEIRO AGENT
+# ==================================================================
+#
+# Objetivo: validar que o agente carrega a personalidade
+# corretamente e consegue gerar um roteiro através da API
+# da Anthropic, sem depender do AutoralPipeline (ainda não
+# implementado).
 
-videos = recovery.encontrar_videos()
+agente = RoteiroAgent()
 
-print(
-    "\n"
-    + "=" * 60
+print()
+print("Personalidade carregada:")
+print(agente.personalidade)
+
+roteiro = agente.gerar(
+    tema="uma história curta de terror urbano",
+    formato="curto",
 )
 
-print(
-    f"Total recuperado: {len(videos)}"
-)
-
-for video in videos:
-
-    print(
-        "\n"
-        + "=" * 60
-    )
-
-    print(video)
-
-    print(
-        f"Caminho: {video.caminho_download}"
-    )
-
-    print(
-        f"Status: {video.status}"
-    )
+print()
+print("=" * 60)
+print("ROTEIRO GERADO:")
+print("=" * 60)
+print(roteiro)

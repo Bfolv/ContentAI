@@ -1,13 +1,15 @@
-from time import sleep
 from datetime import datetime
+from time import sleep
 
 from main import main
 from modules.services.scheduler import SchedulerService
 
 
-# Intervalo usado apenas para verificar se chegou
-# o momento de executar um novo ciclo.
-INTERVALO_VERIFICACAO = 30
+# Intervalo entre as verificações do Scheduler.
+INTERVALO_VERIFICACAO = 15
+
+# Intervalo entre ciclos completos do ContentAI.
+INTERVALO_CICLO = 0.15
 
 
 def iniciar_ia():
@@ -17,14 +19,12 @@ def iniciar_ia():
     print("IA ATIVADA")
     print("=" * 60)
 
-    # O Scheduler é criado apenas uma vez.
     scheduler = SchedulerService(
-        intervalo_minutos=1
+        intervalo_minutos=INTERVALO_CICLO
     )
 
     while True:
 
-        # Verifica se chegou o momento do próximo ciclo.
         if scheduler.pode_executar():
 
             print()
@@ -35,17 +35,25 @@ def iniciar_ia():
             )
             print("=" * 60)
 
-            # Registra o início do ciclo.
             scheduler.registrar_execucao()
 
             try:
 
-                # Executa UM ciclo completo do ContentAI.
+                # Executa um ciclo completo.
                 main()
+
+            except Exception as erro:
+
+                # Um erro em um ciclo não deve encerrar
+                # o modo automático inteiro.
+                print()
+                print("Erro durante o ciclo:")
+                print(f"Detalhes: {erro}")
 
             finally:
 
-                # Registra o momento em que o ciclo terminou.
+                # O intervalo começa a contar somente
+                # depois que o ciclo terminou.
                 scheduler.finalizar_execucao()
 
             print()
@@ -60,7 +68,6 @@ def iniciar_ia():
                 f"Próximo ciclo em {restante}"
             )
 
-        # Aguarda antes de verificar novamente.
         sleep(INTERVALO_VERIFICACAO)
 
 

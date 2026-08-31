@@ -146,74 +146,186 @@ class YouTubeClient:
             )
         )
 
-    def buscar_videos(self, termo, quantidade=5):
+    def buscar_videos(self,termo,quantidade=5,modo="shorts"):
+
         """
-        Pesquisa vídeos no YouTube e retorna
-        uma lista de objetos Video.
+        Pesquisa vídeos no YouTube e retorna uma lista
+        de objetos Video.
+
+        modos:
+
+            shorts
+                Pesquisa vídeos classificados como curtos
+                e mantém somente vídeos com até 180 segundos.
+
+            longos
+                Pesquisa vídeos classificados como longos.
+                Será utilizado futuramente pelo sistema
+                de edição e cortes.
         """
+
+        # ======================================================
+        # CONFIGURAÇÃO DO FILTRO DE DURAÇÃO
+        # ======================================================
+
+        if modo == "shorts":
+
+            video_duration = "short"
+
+        elif modo == "longos":
+
+            video_duration = "long"
+
+        else:
+
+            raise ValueError(
+                f"Modo de busca inválido: {modo}"
+            )
+
+        # ======================================================
+        # PESQUISA
+        # ======================================================
 
         request = self.youtube.search().list(
             part="snippet",
             q=termo,
             type="video",
+            videoDuration=video_duration,
             maxResults=quantidade
         )
 
         response = request.execute()
 
-        # Guarda apenas os IDs retornados pela pesquisa.
+        # ======================================================
+        # IDs ENCONTRADOS
+        # ======================================================
+
         video_ids = []
 
-        for item in response["items"]:
+        for item in response.get("items", []):
 
-            video_ids.append(
-                item["id"]["videoId"]
+            video_id = item.get(
+                "id",
+                {}
+            ).get(
+                "videoId"
             )
 
-        # Converte a lista em uma string separada por vírgulas,
-        # formato exigido pela API videos.list().
-        video_ids = ",".join(video_ids)
+            if video_id:
 
-        # Busca informações completas dos vídeos encontrados.
+                video_ids.append(
+                    video_id
+                )
+
+        # Nenhum vídeo encontrado.
+        if not video_ids:
+
+            return []
+
+        # ======================================================
+        # BUSCA DOS DETALHES
+        # ======================================================
+
+        video_ids_string = ",".join(
+            video_ids
+        )
+
         request = self.youtube.videos().list(
             part="snippet,statistics,contentDetails",
-            id=video_ids
+            id=video_ids_string
         )
 
         video_details = request.execute()
 
-        print(video_details["items"][0])
+        # ======================================================
+        # CONSTRUÇÃO DOS OBJETOS VIDEO
+        # ======================================================
 
-        # Lista que armazenará os objetos Video.
         videos = []
 
-        # Percorre os detalhes completos dos vídeos.
-        for item in video_details["items"]:
+        for item in video_details.get("items", []):
 
-            snippet = item["snippet"]
-            statistics = item.get("statistics", {})
-            content = item.get("contentDetails", {})
+            snippet = item.get(
+                "snippet",
+                {}
+            )
+
+            statistics = item.get(
+                "statistics",
+                {}
+            )
+
+            content = item.get(
+                "contentDetails",
+                {}
+            )
+
+            duracao = converter_duracao_para_segundos(
+                content.get(
+                    "duration",
+                    "PT0S"
+                )
+            )
+
+            # ==================================================
+            # REGRA EXATA DOS SHORTS
+            # ==================================================
+            #
+            # A API possui apenas categorias de duração.
+            #
+            # Nossa regra de negócio é:
+            #
+            #       <= 180 segundos
+            #
+            # Portanto fazemos a validação novamente aqui.
+
+            if modo == "shorts" and duracao > 180:
+
+                continue
+
+            # Para o futuro pipeline de vídeos longos,
+            # só consideramos vídeos acima de 180 segundos.
+
+            if modo == "longos" and duracao <= 180:
+
+                continue
 
             video = Video(
 
                 video_id=item["id"],
 
-                titulo=snippet["title"],
-
-                descricao=snippet["description"],
-
-                canal=snippet["channelTitle"],
-
-                thumbnail=snippet["thumbnails"]["default"]["url"],
-
-                url=f"https://www.youtube.com/watch?v={item['id']}",
-
-                duracao=converter_duracao_para_segundos(
-                    content.get(
-                        "duration",
-                        "PT0S"
-                    )
+                titulo=snippet.get(
+                    "title",
+                    ""
                 ),
+
+                descricao=snippet.get(
+                    "description",
+                    ""
+                ),
+
+                canal=snippet.get(
+                    "channelTitle",
+                    ""
+                ),
+
+                thumbnail=snippet.get(
+                    "thumbnails",
+                    {}
+                ).get(
+                    "default",
+                    {}
+                ).get(
+                    "url",
+                    ""
+                ),
+
+                url=(
+                    f"https://www.youtube.com/watch?v="
+                    f"{item['id']}"
+                ),
+
+                duracao=duracao,
 
                 views=int(
                     statistics.get(
@@ -248,6 +360,8 @@ class YouTubeClient:
 
             )
 
-            videos.append(video)
+            videos.append(
+                video
+            )
 
         return videos
